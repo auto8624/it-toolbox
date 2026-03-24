@@ -39,81 +39,28 @@ whoisRoute.get('/', async (c) => {
   } catch {}
 
   try {
-    const rdapRes = await fetch(`https://rdap.org/domain/${encodeURIComponent(cleanDomain)}`)
-    if (rdapRes.ok) {
-      const rdapData = await rdapRes.json() as Record<string, unknown>
+    // 使用 ip-api.com 进行域名查询（免费，无API密钥，45次/分钟限制）
+    const ipApiRes = await fetch(`http://ip-api.com/json/${encodeURIComponent(cleanDomain)}?fields=status,message,country,regionName,city,timezone,as,org,lat,lon,query,isp`)
+    if (ipApiRes.ok) {
+      const ipApiData = await ipApiRes.json() as Record<string, unknown>
+      
+      if (ipApiData.status !== 'success') {
+        return c.json({ error: String(ipApiData.message ?? 'Lookup failed') }, 400)
+      }
       
       const result: WhoisResult = {
         domain: cleanDomain,
-        raw: JSON.stringify(rdapData, null, 2),
-      }
-
-      if (rdapData.registrar) {
-        result.registrar = String(rdapData.registrar)
-      } else if (rdapData.port43) {
-        result.registrar = String(rdapData.port43)
-      }
-
-      const events = rdapData.events as Array<{ eventAction: string; eventDate: string }> | undefined
-      if (events) {
-        for (const event of events) {
-          if (event.eventAction === 'registration') {
-            result.createdDate = event.eventDate
-          } else if (event.eventAction === 'last changed') {
-            result.updatedDate = event.eventDate
-          } else if (event.eventAction === 'expiration') {
-            result.expiryDate = event.eventDate
-          }
+        raw: JSON.stringify(ipApiData, null, 2),
+        registrar: String(ipApiData.isp ?? 'Unknown'),
+        registrant: {
+          country: String(ipApiData.country ?? 'Unknown'),
+          organization: String(ipApiData.org ?? 'Unknown')
         }
       }
 
-      const nameservers = rdapData.nameservers as Array<{ ldhName: string }> | undefined
-      if (nameservers) {
-        result.nameservers = nameservers.map(ns => ns.ldhName.toLowerCase())
-      }
-
-      const status = rdapData.status as string[] | undefined
-      if (status) {
-        result.status = status
-      }
-
-      const entities = rdapData.entities as Array<Record<string, unknown>> | undefined
-      if (entities) {
-        for (const entity of entities) {
-          const roles = entity.roles as string[] | undefined
-          if (roles && roles.includes('registrant')) {
-            const vcardArray = entity.vcardArray as Array<unknown> | undefined
-            if (vcardArray && Array.isArray(vcardArray[1])) {
-              const vcardItems = vcardArray[1] as Array<Array<unknown>>
-              const registrant: Record<string, string> = {}
-              
-              for (const item of vcardItems) {
-                if (Array.isArray(item) && item.length >= 2) {
-                  const key = item[0] as string
-                  const value = item[1]
-                  if (typeof value === 'string') {
-                    if (key === 'fn') {
-                      registrant.name = value
-                    } else if (key === 'org') {
-                      registrant.organization = value
-                    } else if (key === 'email') {
-                      registrant.email = value
-                    } else if (key === 'adr') {
-                      const adr = value as Array<unknown>
-                      if (Array.isArray(adr) && adr[5]) {
-                        registrant.country = String(adr[5])
-                      }
-                    }
-                  }
-                }
-              }
-              
-              if (Object.keys(registrant).length > 0) {
-                result.registrant = registrant
-              }
-            }
-          }
-        }
+      // 添加服务器信息作为nameservers
+      if (ipApiData.query) {
+        result.nameservers = [String(ipApiData.query)]
       }
 
       try {
@@ -123,7 +70,7 @@ whoisRoute.get('/', async (c) => {
       return c.json(result)
     }
     
-    return c.json({ error: 'WHOIS query failed', details: `HTTP ${rdapRes.status}` }, 502)
+    return c.json({ error: 'WHOIS query failed', details: `HTTP ${ipApiRes.status}` }, 502)
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500)
   }
