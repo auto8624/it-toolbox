@@ -415,6 +415,10 @@ pnpm build
 pnpm deploy
 ```
 
+### Fork 用户部署须知
+
+> ⚠️ **重要**：Fork 本项目后，需要在 Cloudflare Dashboard 手动绑定资源，请勿直接修改 `wrangler.toml` 中的 ID，否则会导致与主分支同步冲突。
+
 详细部署步骤请参考 [部署文档](./docs/DEPLOYMENT.md)。
 
 ---
